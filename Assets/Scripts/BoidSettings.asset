@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e3d3e8f4de6e4473e9714af8d3ba4360, type: 3}
+  m_Name: BoidSettings
+  m_EditorClassIdentifier: 
+  minSpeed: 1
+  maxSpeed: 8
+  maxBound: 6
+  turnFactor: 0.5
+  visionRadius: 10
+  avoidanceRadius: 1
+  avoidanceStrength: 0.5
+  cohesionStrength: 50
+  alignmentStrength: 100
+  boidSize: 0.2
