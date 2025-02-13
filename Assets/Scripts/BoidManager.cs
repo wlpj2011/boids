@@ -12,6 +12,7 @@ public class BoidManager : MonoBehaviour
         boids = FindObjectsByType<Boid>(FindObjectsSortMode.None);
         foreach (Boid b in boids)
         {
+            // Initialize each boid with the settings in BoidSettings
             b.Initialize(settings);
         }
     }
@@ -24,6 +25,7 @@ public class BoidManager : MonoBehaviour
             int numBoids = boids.Length;
             for (int i = 0; i < numBoids; i++)
             {
+                // Update each boid with separation, alignment, and cohesion
                 boids[i].SeparateFromBoids(boids, i);
                 boids[i].AlignWithBoids(boids, i);
                 boids[i].CohereWithBoids(boids, i);

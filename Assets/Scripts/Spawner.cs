@@ -10,6 +10,7 @@ public class Spawner : MonoBehaviour
     {
         for (int i = 0; i < spawnCount; i++)
         {
+            // Spawn boids at random places within a sphere facing in a random direction
             Vector3 pos = transform.position + Random.insideUnitSphere * spawnRadius;
             Boid boid = Instantiate(boidPrefab);
             boid.transform.position = pos;
