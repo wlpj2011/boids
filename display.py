@@ -4,6 +4,17 @@ from numpy.typing import NDArray
 
 from sim import Params, State, initial_state, step
 
+ARROW_SIZE = 0.02
+
+def arrow_vertices(state: State, r: float) -> NDArray[np.float64]:
+    """Triangle vertices per particle, sim coords, (N, 3, 2)."""
+    unit_heading = state.vel / np.linalg.norm(state.vel, axis=1, keepdims=True)
+    normal = unit_heading[..., :: -1] * np.array([-1.0, 1.0])
+    nose = state.pos + unit_heading * r
+    left = state.pos - unit_heading * r / 2 + normal * r/4
+    right = state.pos - unit_heading * r / 2 - normal * r/4
+    return np.stack([nose, left, right], axis=1)
+
 
 def to_screen(pos: NDArray[np.float64], size: tuple[int, int]) -> NDArray[np.float64]:
     """Map sim coordinates (unit box, y up) to pixels (y down).
@@ -15,9 +26,10 @@ def to_screen(pos: NDArray[np.float64], size: tuple[int, int]) -> NDArray[np.flo
 
 def draw(screen, state):
     screen.fill((0, 0, 0))
-    px = to_screen(state.pos, screen.get_size())
-    for p in px:
-        pygame.draw.circle(screen, (255, 0, 0), p.tolist(), 2)
+    arrows = arrow_vertices(state, ARROW_SIZE)
+    arrows = to_screen(arrows, screen.get_size())
+    for arrow in arrows:
+        pygame.draw.polygon(screen, (255,0,0), arrow.tolist())
 
 
 def main() -> None:
@@ -25,7 +37,7 @@ def main() -> None:
     w = 600 # Width of pygame screen
     h = 600 # Height of pygame screen
 
-    n = 1 # Number of boids
+    n = 10 # Number of boids
     d = 2 # Number of dimensions
     dt = 1/60
     seed = 1 # rng seed
