@@ -31,7 +31,7 @@ def step(state: State, params: Params, dt: float) -> State:
     new_pos = state.pos + dt * state.vel
     return State(new_pos, state.vel)
 
-def displacement(pos, bounds=None) -> NDArray[np.float64]:
+def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
     """
     Calculate the displacement between each pair of boids
     displacement[i,j] = pos[j] - pos[i]
