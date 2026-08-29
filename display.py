@@ -42,7 +42,7 @@ def main() -> None:
     dt = 1/60
     seed = 1 # rng seed
 
-    params = Params()
+    params = Params(bounds=None, cohesion_radius=10, cohesion_weight=10)
     rng = np.random.default_rng(seed)
     state = initial_state(n, d, rng)
 
