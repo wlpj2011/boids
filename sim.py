@@ -30,3 +30,14 @@ def step(state: State, params: Params, dt: float) -> State:
     """Advance one timestep. For now: pos + dt * vel, constant vel."""
     new_pos = state.pos + dt * state.vel
     return State(new_pos, state.vel)
+
+def displacement(pos, bounds=None) -> NDArray[np.float64]:
+    """
+    Calculate the displacement between each pair of boids
+    displacement[i,j] = pos[j] - pos[i]
+    """
+    return pos[None, :, :] - pos[:, None, :]
+
+if __name__ == "__main__":
+    pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    print(displacement(pos))
