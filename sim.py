@@ -42,7 +42,7 @@ def forces(state: State, params: Params) -> NDArray[np.float64]:
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     cohesion_force =  cohesion(disp, dist, params)
-    alignment_force = alignment(state.pos, dist, params)
+    alignment_force = alignment(state.vel, dist, params) # TODO: #2 Write known value test that catches that I accidentally passed state.pos here
     return cohesion_force + alignment_force
 
 def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
