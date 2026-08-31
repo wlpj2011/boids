@@ -15,6 +15,10 @@ class Params:
     alignment_radius : float
     alignment_weight : float
 
+    @property
+    def radii(self) -> tuple[float, ...]:
+        return (self.cohesion_radius, self.alignment_radius)
+
 
 @dataclass(frozen=True)
 class State:
@@ -42,8 +46,9 @@ def forces(state: State, params: Params) -> NDArray[np.float64]:
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     cohesion_force =  cohesion(disp, dist, params)
-    alignment_force = alignment(state.vel, dist, params) # TODO: #2 Write known value test that catches that I accidentally passed state.pos here
-    return cohesion_force + alignment_force
+    alignment_force = alignment(state.vel, dist, params) 
+    separation_force = separation(state.pos, disp, dist, params)
+    return cohesion_force + alignment_force + separation_force
 
 def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
     """
@@ -54,24 +59,27 @@ def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
 
 def cohesion(disp: NDArray[np.float64], dist: NDArray[np.float64], params: Params) -> NDArray[np.float64]:
     close_boids = (dist < params.cohesion_radius) & ~np.eye(len(dist), dtype=bool) # (n,n)
-    count = np.sum(close_boids, axis=1, keepdims=1) # (n,1)
+    count = np.sum(close_boids, axis=1, keepdims=True) # (n,1)
     mean_disp = np.sum(disp * close_boids[..., None], axis=1) / np.maximum(count, 1)  # (n, d)
     cohesion_force = mean_disp * params.cohesion_weight
     return cohesion_force
 
 def alignment(vel, dist, params) -> NDArray[np.float64]:
     close_boids = (dist < params.alignment_radius) & ~np.eye(len(dist), dtype=bool)
-    count = np.sum(close_boids, axis=1, keepdims=1) # (n,1)
+    count = np.sum(close_boids, axis=1, keepdims=True) # (n,1)
     vel_diff = vel[None, :, :] - vel[:, None, :]
     mean_vel = np.sum(vel_diff * close_boids[..., None], axis=1) / np.maximum(count, 1)  # (n, d)
     alignment_force = mean_vel * params.alignment_weight
     return alignment_force
 
+def separation(pos, disp, dist, params) -> NDArray[np.float64]:
+    return np.zeros(pos.shape)
+
 if __name__ == "__main__":
-    pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
-    vel = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    pos = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
+    vel = np.array([[-1.0, 3.0], [3.0, 5.0], [-2.0, 1.0]])
     state = State(pos, vel)
-    params = Params(cohesion_radius=2, cohesion_weight=10, alignment_radius=2, alignment_weight=10, bounds=None)
+    params = Params(cohesion_radius=5, cohesion_weight=10, alignment_radius=20, alignment_weight=40, bounds=None)
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     print(f"position:\n{pos}")
