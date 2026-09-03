@@ -76,24 +76,28 @@ def alignment(vel, dist, params) -> NDArray[np.float64]:
 
 def separation(disp, dist, params) -> NDArray[np.float64]:
     """
-    averages -disp[i,j]/dist[i,j]^2 over nearby boids.
+    sums -disp[i,j]/dist[i,j]^2 over nearby boids.
+    Commented out the two parts that would have made it an average.
     """
     close_boids = (0 < dist) & (dist < params.separation_radius)          # (n, n)
-    count = np.sum(close_boids, axis=1, keepdims=True)                     # (n, 1)
+    #count = np.sum(close_boids, axis=1, keepdims=True)                     # (n, 1)
     contrib = np.divide(-disp, dist[..., None] ** 2 + params.eps_smooth **2,
                         out=np.zeros_like(disp),
                         where=close_boids[..., None])                      # (n, n, d)
-    mean_contrib = np.sum(contrib, axis=1) / np.maximum(count, 1)   # (n, d)
+    mean_contrib = np.sum(contrib, axis=1) #/ np.maximum(count, 1)   # (n, d)
     return mean_contrib * params.separation_weight
 
 if __name__ == "__main__":
     pos = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
     vel = np.array([[-1.0, 3.0], [3.0, 5.0], [-2.0, 1.0]])
+    
+    pos = np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[1.0, 2.0], [1.0, 4.0], [-5.0, -2.0]])
     state = State(pos, vel)
     params = Params(cohesion_radius=5, cohesion_weight=10, 
                     alignment_radius=20, alignment_weight=40, 
                     separation_radius=4.0, separation_weight=2.0, 
-                    eps_smooth=0.01, bounds=None)
+                    eps_smooth=0.00, bounds=None)
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     print(f"position:\n{pos}")

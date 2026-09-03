@@ -45,7 +45,7 @@ def main() -> None:
     params = Params(bounds=None, eps_smooth=0.05,
                     cohesion_radius=0.3, cohesion_weight=5, 
                     alignment_radius=0.15, alignment_weight=1, 
-                    separation_radius=0.05, separation_weight=0.1)
+                    separation_radius=0.05, separation_weight=0.05)
     rng = np.random.default_rng(seed)
     state = initial_state(n, d, rng)
 

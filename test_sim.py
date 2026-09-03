@@ -1,4 +1,7 @@
+from dataclasses import replace
+
 import numpy as np
+import pytest
 from hypothesis import assume, given
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
@@ -33,7 +36,7 @@ def shift_vector(d:int=2):
     return arrays(np.float64, (d,),
                   elements=st.floats(-10, 10, allow_nan=False))
 
-def cohesion_from(pos, params):
+def cohesion_from(pos, vel, params):
     disp = displacement(pos, bounds=params.bounds)
     return cohesion(disp, np.linalg.norm(disp, axis=-1), params)
 
@@ -53,7 +56,7 @@ def alignment_params(radius=2.0, weight=1.0):
                   alignment_radius=radius, alignment_weight=weight, 
                   separation_radius=1.0, separation_weight=0.0)
 
-def separation_from(pos, params):
+def separation_from(pos, vel, params):
     disp = displacement(pos, bounds=params.bounds)
     return separation(disp, np.linalg.norm(disp, axis=-1), params)
 
@@ -64,11 +67,16 @@ def separation_params(radius=2.0, weight=1.0, eps = 0.01):
                   separation_radius=radius, separation_weight=weight)
 
 
-def force_from(pos, vel, params):
+def full_params(radius=2.0, weight=1.0, eps = 0.01):
+    return Params(bounds=None, eps_smooth=eps, 
+                  cohesion_radius=radius, cohesion_weight=weight, 
+                  alignment_radius=radius, alignment_weight=weight, 
+                  separation_radius=radius, separation_weight=weight)
+
+def forces_from(pos, vel, params):
     state = State(pos, vel)
     force = forces(state, params)
     return force
-
 
 def separation_reference(pos, params):
     n, d = pos.shape
@@ -82,7 +90,7 @@ def separation_reference(pos, params):
             if 0 < dist < params.separation_radius:
                 acc -= r / (dist**2 + params.eps_smooth **2)
                 count += 1
-        out[i] = acc / count if count else 0
+        out[i] = acc #/ count if count else 0
     return out * params.separation_weight
 
 # Random Generation Tests
@@ -93,6 +101,54 @@ def test_random_orthogonal_is_orthogonal(seed, d):
     assert np.allclose(Q.T @ Q, np.eye(d))
     assert np.isclose(abs(np.linalg.det(Q)), 1.0)
 
+
+FORCES = [
+    pytest.param(cohesion_from, cohesion_params(), 1, id="cohesion"),
+    pytest.param(alignment_from, alignment_params(), 0, id="alignment"),
+    pytest.param(separation_from, separation_params(), -1, id="separation"),
+]
+
+SUBJECTS = FORCES + [pytest.param(forces_from, full_params(), None, id="all")]
+
+LENGTH_FIELDS = ("cohesion_radius", "alignment_radius",
+                 "separation_radius", "eps_smooth")
+
+def scale_lengths(p: Params, lam: float) -> Params:
+    return replace(p, **{f: getattr(p, f) * lam for f in LENGTH_FIELDS})
+
+@pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
+@given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
+def test_rotation_equivariant(force_from, p, exponent, pos, vel, seed):
+    assume(well_separated(pos, p.radii))
+    Q = random_orthogonal(2, np.random.default_rng(seed))
+    assert np.allclose(force_from(pos @ Q.T, vel @ Q.T, p),
+                       force_from(pos, vel, p) @ Q.T)
+
+@pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
+@given(pos=positions(), vel=velocities(), shift=shift_vector())
+def test_translation_invariant(force_from, p, exponent, shift, pos, vel):
+    assume(well_separated(pos, p.radii))
+    assert np.allclose(force_from(pos + shift, vel, p), force_from(pos, vel, p))
+
+@pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
+@given(pos=positions(), vel=velocities(), shift=shift_vector())
+def test_galilean_invariant(force_from, p, exponent, shift, pos, vel):
+    assume(well_separated(pos, p.radii))
+    assert np.allclose(force_from(pos, vel + shift, p), force_from(pos, vel, p))
+
+@pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
+@given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
+def test_permutation_equivariant(force_from, p, exponent, pos, vel, seed):
+    assume(well_separated(pos, p.radii))
+    perm = np.random.default_rng(seed).permutation(len(pos))
+    assert np.allclose(force_from(pos[perm], vel[perm], p), force_from(pos, vel, p)[perm])
+
+@pytest.mark.parametrize("force_from, p, exponent", FORCES)
+@given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
+def test_position_scaling(force_from, p, exponent, pos, vel, lam):
+    assume(well_separated(pos, p.radii))
+    assert np.allclose(force_from(lam * pos, vel, scale_lengths(p, lam)),
+                       lam ** exponent * force_from(pos, vel, p))
 
 # Displacement Invariance tests
 
@@ -135,57 +191,30 @@ def test_displacement_known_values():
 
 def test_cohesion_known_values():
     pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[1.0, 2.0], [1.0, 4.0], [-5.0, -2.0]])
     params =cohesion_params(radius=100.0, weight=10.0)
     known_cohesion =  np.array([[5.0, 5.0], [-10.0, 5.0], [5.0, -10.0]])
-    calc_cohesion = cohesion_from(pos, params)
+    calc_cohesion = cohesion_from(pos, vel, params)
     assert np.allclose(known_cohesion, calc_cohesion)
 
 def test_cohesion_partial_neighborhood():
     pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[1.0, 2.0], [1.0, 4.0], [-5.0, -2.0]])
     params = cohesion_params(radius=1.2, weight=10)
     known_cohesion =  np.array([[5.0, 5.0], [-10.0, 0.0], [0.0, -10.0]])
-    calc_cohesion = cohesion_from(pos, params)
+    calc_cohesion = cohesion_from(pos, vel, params)
     assert np.allclose(known_cohesion, calc_cohesion)
 
 def test_cohesion_all_isolated():
     pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[1.0, 2.0], [1.0, 4.0], [-5.0, -2.0]])
     params = cohesion_params(radius=0.4, weight=10.0)
     known_cohesion =  np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]])
-    calc_cohesion = cohesion_from(pos, params)
+    calc_cohesion = cohesion_from(pos, vel, params)
     assert np.allclose(known_cohesion, calc_cohesion)
 
 
-# Cohesion Invariance tests
-
-@given(pos=positions(), shift=shift_vector())
-def test_cohesion_translation_invariant(pos, shift):
-    p = cohesion_params()
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(cohesion_from(pos + shift, p), cohesion_from(pos, p))
-
-@given(pos=positions(), seed=st.integers(0, 2**32 - 1))
-def test_cohesion_rotation_equivariant(pos, seed):
-    p = cohesion_params()
-    assume(well_separated(pos, p.radii))
-    Q = random_orthogonal(2, np.random.default_rng(seed))
-    assert np.allclose(cohesion_from(pos @ Q.T, p), cohesion_from(pos, p) @ Q.T)
-
-@given(pos=positions(), seed=st.integers(0, 2**32 - 1))
-def test_cohesion_permutation_equivariant(pos, seed):
-    p = cohesion_params()
-    assume(well_separated(pos, p.radii))
-    perm = np.random.default_rng(seed).permutation(len(pos))
-    assert np.allclose(cohesion_from(pos[perm], p), cohesion_from(pos, p)[perm])
-
-@given(pos=positions(), lam=st.floats(0.1, 10))
-def test_cohesion_scaling(pos, lam):
-    p, p_scaled = cohesion_params(radius=2.0), cohesion_params(radius=2.0 * lam)
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(cohesion_from(lam * pos, p_scaled),
-                       lam * cohesion_from(pos, p))
-
-
-# Alignment Known Values test
+# Alignment Known Values tests
 
 def test_alignment_known_values():
     pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
@@ -212,40 +241,7 @@ def test_alignment_all_isolated():
     assert np.allclose(known_alignment, calc_alignment)
 
 
-# Alignment Invariance tests
-
-@given(pos=positions(), vel=velocities(), shift=shift_vector())
-def test_alignment_translation_invariant(pos, vel, shift):
-    p = alignment_params()
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(alignment_from(pos + shift, vel, p), alignment_from(pos, vel, p))
-
-@given(pos=positions(), vel=velocities(), shift=shift_vector())
-def test_alignment_galilean_invariant(pos, vel, shift):
-    p = alignment_params()
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(alignment_from(pos, vel + shift, p), alignment_from(pos, vel, p))
-
-@given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
-def test_alignment_rotation_equivariant(pos, vel, seed):
-    p = alignment_params()
-    assume(well_separated(pos, p.radii))
-    Q = random_orthogonal(2, np.random.default_rng(seed))
-    assert np.allclose(alignment_from(pos @ Q.T, vel @ Q.T, p), alignment_from(pos, vel, p) @ Q.T)
-
-@given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
-def test_alignment_permutation_equivariant(pos, vel, seed):
-    p = alignment_params()
-    assume(well_separated(pos, p.radii))
-    perm = np.random.default_rng(seed).permutation(len(pos))
-    assert np.allclose(alignment_from(pos[perm], vel[perm], p), alignment_from(pos, vel, p)[perm])
-
-@given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
-def test_alignment_scaling_pos(pos, vel, lam):
-    p, p_scaled = alignment_params(radius=2.0), alignment_params(radius=2.0 * lam)
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(alignment_from(lam * pos, vel, p_scaled),
-                        alignment_from(pos, vel, p))
+# Alignment Equivariance tests
 
 @given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
 def test_alignment_scaling_vel(pos, vel, lam):
@@ -254,42 +250,49 @@ def test_alignment_scaling_vel(pos, vel, lam):
     assert np.allclose(alignment_from(pos, lam * vel, p),
                        lam * alignment_from(pos, vel, p))
 
+
 # Separation Match Loop test
 
-@given(pos=positions())
-def test_separation_numpy_loop(pos):
+@given(pos=positions(), vel=velocities())
+def test_separation_numpy_loop(pos, vel):
     p = separation_params()
     assume(well_separated(pos, p.radii))
-    assert np.allclose(separation_from(pos, p), separation_reference(pos, p))
+    assert np.allclose(separation_from(pos, vel, p), separation_reference(pos, p))
 
-# Separation Invariance tests
 
-@given(pos=positions(), shift=shift_vector())
-def test_separation_translation_invariant(pos, shift):
-    p = separation_params()
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(separation_from(pos + shift, p), separation_from(pos, p))
+# Separation Known Values tests
 
-@given(pos=positions(), seed=st.integers(0, 2**32 - 1))
-def test_separation_rotation_equivariant(pos, seed):
-    p = separation_params()
-    assume(well_separated(pos, p.radii))
-    Q = random_orthogonal(2, np.random.default_rng(seed))
-    assert np.allclose(separation_from(pos @ Q.T, p), separation_from(pos, p) @ Q.T)
+def test_separation_known_values():
+    pos = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
+    vel = np.array([[-1.0, 3.0], [3.0, 5.0], [-2.0, 1.0]])
+    params = separation_params(radius=4.0, weight=2.0, eps=0.00)
+    known_separation = np.array([[-0.5, -0.5], [0.0, 0.0], [0.5, 0.5]])
+    calc_separation = separation_from(pos,vel, params)
+    assert np.allclose(known_separation, calc_separation)
 
-@given(pos=positions(), seed=st.integers(0, 2**32 - 1))
-def test_separation_permutation_equivariant(pos, seed):
-    p = separation_params()
-    assume(well_separated(pos, p.radii))
-    perm = np.random.default_rng(seed).permutation(len(pos))
-    assert np.allclose(separation_from(pos[perm], p), separation_from(pos, p)[perm])
+def test_separation_partial_neighborhood():
+    pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[1.0, 2.0], [1.0, 4.0], [-5.0, -2.0]])
+    params = separation_params(radius=1.2, weight=10, eps=0.00)
+    known_separation =  np.array([[-10.0, -10.0], [10.0, 0.0], [0.0, 10.0]])
+    calc_separation = separation_from(pos, vel, params)
+    assert np.allclose(known_separation, calc_separation)
 
-@given(pos=positions(), lam=st.floats(0.1, 10))
-def test_separation_scaling(pos, lam):
-    p, p_scaled = separation_params(radius=2.0, eps = 0.01), separation_params(radius=2.0 * lam, eps = 0.01 * lam)
-    assume(well_separated(pos, p.radii))
-    assert np.allclose(separation_from(lam * pos, p_scaled),
-                       (lam ** -1) * separation_from(pos, p))
+def test_separation_all_isolated():
+    pos = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
+    params = separation_params(radius=0.4, weight=10, eps=0.00)
+    known_separation =  np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 0.0]])
+    calc_separation = separation_from(pos, vel, params)
+    assert np.allclose(known_separation, calc_separation)
+
+def test_separation_coincidence():
+    pos = np.array([[0.0, 0.0], [0.0, 0.0], [0.0, 1.0]])
+    vel = np.array([[1.0, 2.0], [1.0, 4.0], [-5.0, -2.0]])
+    params = separation_params(radius=4.0, weight=2, eps=0.00)
+    known_separation =  np.array([[0.0, -2.0], [0.0, -2.0], [0.0, 4.0]])
+    calc_separation = separation_from(pos, vel, params)
+    assert np.allclose(known_separation, calc_separation)
 
 # All Forces Known Value tests
 
@@ -303,5 +306,5 @@ def test_combined_forces_known_values():
     known_alignment =  np.array([[60.0, 0.0], [-180.0, -120.0], [120.0, 120.0]])
     known_cohesion = np.array([[20.0, 20.0], [0.0, 0.0], [-20.0, -20.0]])
     known_separation = np.array([[-0.49999375, -0.49999375], [0.0, 0.0], [0.49999375, 0.49999375]])
-    calc_force = force_from(pos, vel, params)
+    calc_force = forces_from(pos, vel, params)
     assert np.allclose(known_alignment + known_cohesion + known_separation, calc_force)
