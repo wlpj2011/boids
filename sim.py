@@ -14,10 +14,12 @@ class Params:
     cohesion_weight : float
     alignment_radius : float
     alignment_weight : float
-
+    separation_radius : float
+    separation_weight : float
+    eps_smooth : float
     @property
     def radii(self) -> tuple[float, ...]:
-        return (self.cohesion_radius, self.alignment_radius)
+        return (self.cohesion_radius, self.alignment_radius, self.separation_radius)
 
 
 @dataclass(frozen=True)
@@ -47,7 +49,7 @@ def forces(state: State, params: Params) -> NDArray[np.float64]:
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     cohesion_force =  cohesion(disp, dist, params)
     alignment_force = alignment(state.vel, dist, params) 
-    separation_force = separation(state.pos, disp, dist, params)
+    separation_force = separation(disp, dist, params)
     return cohesion_force + alignment_force + separation_force
 
 def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
@@ -72,14 +74,26 @@ def alignment(vel, dist, params) -> NDArray[np.float64]:
     alignment_force = mean_vel * params.alignment_weight
     return alignment_force
 
-def separation(pos, disp, dist, params) -> NDArray[np.float64]:
-    return np.zeros(pos.shape)
+def separation(disp, dist, params) -> NDArray[np.float64]:
+    """
+    averages -disp[i,j]/dist[i,j]^2 over nearby boids.
+    """
+    close_boids = (0 < dist) & (dist < params.separation_radius)          # (n, n)
+    count = np.sum(close_boids, axis=1, keepdims=True)                     # (n, 1)
+    contrib = np.divide(-disp, dist[..., None] ** 2 + params.eps_smooth **2,
+                        out=np.zeros_like(disp),
+                        where=close_boids[..., None])                      # (n, n, d)
+    mean_contrib = np.sum(contrib, axis=1) / np.maximum(count, 1)   # (n, d)
+    return mean_contrib * params.separation_weight
 
 if __name__ == "__main__":
     pos = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
     vel = np.array([[-1.0, 3.0], [3.0, 5.0], [-2.0, 1.0]])
     state = State(pos, vel)
-    params = Params(cohesion_radius=5, cohesion_weight=10, alignment_radius=20, alignment_weight=40, bounds=None)
+    params = Params(cohesion_radius=5, cohesion_weight=10, 
+                    alignment_radius=20, alignment_weight=40, 
+                    separation_radius=4.0, separation_weight=2.0, 
+                    eps_smooth=0.01, bounds=None)
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     print(f"position:\n{pos}")
@@ -87,3 +101,4 @@ if __name__ == "__main__":
     print(params)
     print(f"cohesion:\n{cohesion(disp, dist, params)}")
     print(f"alignment:\n{alignment(state.vel, dist, params)}")
+    print(f"separation:\n{separation(disp, dist, params)}")

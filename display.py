@@ -34,15 +34,18 @@ def draw(screen, state):
 
 def main() -> None:
     """Owns the window, the clock, and the loop."""
-    w = 600 # Width of pygame screen
-    h = 600 # Height of pygame screen
+    w = 1000 # Width of pygame screen
+    h = 1000 # Height of pygame screen
 
-    n = 10 # Number of boids
+    n = 100 # Number of boids
     d = 2 # Number of dimensions
     dt = 1/60
     seed = 1 # rng seed
 
-    params = Params(bounds=None, cohesion_radius=0.3, cohesion_weight=10, alignment_radius=0.15, alignment_weight=5)
+    params = Params(bounds=None, eps_smooth=0.05,
+                    cohesion_radius=0.3, cohesion_weight=5, 
+                    alignment_radius=0.15, alignment_weight=1, 
+                    separation_radius=0.05, separation_weight=0.1)
     rng = np.random.default_rng(seed)
     state = initial_state(n, d, rng)
 
