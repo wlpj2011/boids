@@ -75,7 +75,7 @@ def full_params(radius=2.0, weight=1.0, eps = 0.01):
 
 def forces_from(pos, vel, params):
     state = State(pos, vel)
-    force = forces(state, params)
+    force = sum(forces(state, params).values())
     return force
 
 def separation_reference(pos, params):

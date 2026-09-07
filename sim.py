@@ -38,19 +38,27 @@ def initial_state(n: int, d: int, rng: np.random.Generator) -> State:
 
 
 def step(state: State, params: Params, dt: float) -> State:
-    """Advance one timestep. For now: pos + dt * vel, constant vel."""
-    new_force = forces(state, params)
+    """
+    Advance one timestep.
+    pos' = pos + dt * vel
+    vel' = vel + forces * dt
+    """
+    new_force = sum(forces(state, params).values())
     new_pos = state.pos + dt * state.vel
     new_vel = state.vel + dt * new_force
     return State(new_pos, new_vel)
 
-def forces(state: State, params: Params) -> NDArray[np.float64]:
+def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     cohesion_force =  cohesion(disp, dist, params)
     alignment_force = alignment(state.vel, dist, params) 
     separation_force = separation(disp, dist, params)
-    return cohesion_force + alignment_force + separation_force
+    current_forces = dict()
+    current_forces["cohesion"] = cohesion_force
+    current_forces["alignment"] = alignment_force
+    current_forces["separation"] = separation_force
+    return current_forces
 
 def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
     """
@@ -77,15 +85,13 @@ def alignment(vel, dist, params) -> NDArray[np.float64]:
 def separation(disp, dist, params) -> NDArray[np.float64]:
     """
     sums -disp[i,j]/dist[i,j]^2 over nearby boids.
-    Commented out the two parts that would have made it an average.
     """
     close_boids = (0 < dist) & (dist < params.separation_radius)          # (n, n)
-    #count = np.sum(close_boids, axis=1, keepdims=True)                     # (n, 1)
     contrib = np.divide(-disp, dist[..., None] ** 2 + params.eps_smooth **2,
                         out=np.zeros_like(disp),
                         where=close_boids[..., None])                      # (n, n, d)
-    mean_contrib = np.sum(contrib, axis=1) #/ np.maximum(count, 1)   # (n, d)
-    return mean_contrib * params.separation_weight
+    sum_contrib = np.sum(contrib, axis=1)
+    return sum_contrib * params.separation_weight
 
 if __name__ == "__main__":
     pos = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])
