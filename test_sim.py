@@ -44,7 +44,8 @@ def cohesion_params(radius=2.0, weight=1.0):
     return Params(bounds=None, eps_smooth=0.01,
                   cohesion_radius=radius, cohesion_weight=weight, 
                   alignment_radius=1.0, alignment_weight=0.0, 
-                  separation_radius=1.0, separation_weight=0.0)
+                  separation_radius=1.0, separation_weight=0.0,
+                  min_speed=1.0, max_speed=100.0)
 
 def alignment_from(pos, vel, params):
     disp = displacement(pos, bounds=params.bounds)
@@ -54,7 +55,8 @@ def alignment_params(radius=2.0, weight=1.0):
     return Params(bounds=None, eps_smooth=0.01, 
                   cohesion_radius=1.0, cohesion_weight=0.0, 
                   alignment_radius=radius, alignment_weight=weight, 
-                  separation_radius=1.0, separation_weight=0.0)
+                  separation_radius=1.0, separation_weight=0.0,
+                  min_speed=1.0, max_speed=100.0)
 
 def separation_from(pos, vel, params):
     disp = displacement(pos, bounds=params.bounds)
@@ -64,14 +66,16 @@ def separation_params(radius=2.0, weight=1.0, eps = 0.01):
     return Params(bounds=None, eps_smooth=eps, 
                   cohesion_radius=1.0, cohesion_weight=0.0, 
                   alignment_radius=1.0, alignment_weight=0.0, 
-                  separation_radius=radius, separation_weight=weight)
+                  separation_radius=radius, separation_weight=weight,
+                  min_speed=1.0, max_speed=100.0)
 
 
 def full_params(radius=2.0, weight=1.0, eps = 0.01):
     return Params(bounds=None, eps_smooth=eps, 
                   cohesion_radius=radius, cohesion_weight=weight, 
                   alignment_radius=radius, alignment_weight=weight, 
-                  separation_radius=radius, separation_weight=weight)
+                  separation_radius=radius, separation_weight=weight,
+                  min_speed=1.0, max_speed=100.0)
 
 def forces_from(pos, vel, params):
     state = State(pos, vel)
@@ -112,6 +116,8 @@ SUBJECTS = FORCES + [pytest.param(forces_from, full_params(), None, id="all")]
 
 LENGTH_FIELDS = ("cohesion_radius", "alignment_radius",
                  "separation_radius", "eps_smooth")
+
+VELOCITY_FIELDS = ("min_speed", "max_speed",)
 
 def scale_lengths(p: Params, lam: float) -> Params:
     return replace(p, **{f: getattr(p, f) * lam for f in LENGTH_FIELDS})
@@ -302,7 +308,8 @@ def test_combined_forces_known_values():
     params = Params(bounds=None, eps_smooth=0.01, 
                     cohesion_radius=5, cohesion_weight=10, 
                     alignment_radius=20, alignment_weight=40,
-                    separation_radius=4.0, separation_weight=2.0)
+                    separation_radius=4.0, separation_weight=2.0,
+                    min_speed=1.0, max_speed=100.0)
     known_alignment =  np.array([[60.0, 0.0], [-180.0, -120.0], [120.0, 120.0]])
     known_cohesion = np.array([[20.0, 20.0], [0.0, 0.0], [-20.0, -20.0]])
     known_separation = np.array([[-0.49999375, -0.49999375], [0.0, 0.0], [0.49999375, 0.49999375]])

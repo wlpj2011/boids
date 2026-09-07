@@ -17,6 +17,8 @@ class Params:
     separation_radius : float
     separation_weight : float
     eps_smooth : float
+    min_speed : float
+    max_speed : float
     @property
     def radii(self) -> tuple[float, ...]:
         return (self.cohesion_radius, self.alignment_radius, self.separation_radius)
@@ -46,6 +48,9 @@ def step(state: State, params: Params, dt: float) -> State:
     new_force = sum(forces(state, params).values())
     new_pos = state.pos + dt * state.vel
     new_vel = state.vel + dt * new_force
+    speed = np.linalg.norm(new_vel, axis=1, keepdims=True)          # (n, 1)
+    scale = np.clip(speed, params.min_speed, params.max_speed) / np.maximum(speed, 1e-12)
+    new_vel = new_vel * scale
     return State(new_pos, new_vel)
 
 def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
@@ -54,7 +59,7 @@ def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
     cohesion_force =  cohesion(disp, dist, params)
     alignment_force = alignment(state.vel, dist, params) 
     separation_force = separation(disp, dist, params)
-    current_forces = dict()
+    current_forces = {}
     current_forces["cohesion"] = cohesion_force
     current_forces["alignment"] = alignment_force
     current_forces["separation"] = separation_force
@@ -103,7 +108,10 @@ if __name__ == "__main__":
     params = Params(cohesion_radius=5, cohesion_weight=10, 
                     alignment_radius=20, alignment_weight=40, 
                     separation_radius=4.0, separation_weight=2.0, 
-                    eps_smooth=0.00, bounds=None)
+                    eps_smooth=0.00, 
+                    min_speed=1.0,
+                    max_speed=100.0,
+                    bounds=None)
     disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     print(f"position:\n{pos}")
