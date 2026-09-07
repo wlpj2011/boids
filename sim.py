@@ -1,15 +1,43 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
 
 
+class Topology(ABC):
+    @abstractmethod
+    def displacement(self, pos: NDArray[np.float64]) -> NDArray[np.float64]:
+        pass
+
+    @abstractmethod
+    def wrap(self, pos, vel) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        pass
+
+@dataclass(frozen=True)
+class Flat(Topology):
+    def displacement(self, pos):
+        disp = pos[None, :, :] - pos[:, None, :]
+        return disp
+
+    def wrap(self, pos, vel):
+        return pos, vel
+
+@dataclass(frozen=True)
+class Torus(Topology):
+    size: float
+    def displacement(self, pos):
+        raw = pos[None, :, :] - pos[:, None, :]
+        return raw - self.size * np.round(raw / self.size)
+    def wrap(self, pos, vel):
+        return (pos % self.size, vel)
+
 @dataclass(frozen=True)
 class Params:
     """Simulation parameters. Steering weights come later; for one
     particle you need nothing, but keep the class so signatures are
     stable."""
-    bounds : None
+    topology: Topology
     cohesion_radius : float
     cohesion_weight : float
     alignment_radius : float
@@ -29,6 +57,10 @@ class State:
     """pos, vel: (n, d) float64 arrays."""
     pos: NDArray[np.float64]
     vel: NDArray[np.float64]
+    @property
+    def order_parameter(self) -> float:
+        unit = self.vel / np.linalg.norm(self.vel, axis=1, keepdims=True)  # (n, d)
+        return np.linalg.norm(np.mean(unit, axis=0))                           # scalar
 
 
 def initial_state(n: int, d: int, rng: np.random.Generator) -> State:
@@ -51,10 +83,11 @@ def step(state: State, params: Params, dt: float) -> State:
     speed = np.linalg.norm(new_vel, axis=1, keepdims=True)          # (n, 1)
     scale = np.clip(speed, params.min_speed, params.max_speed) / np.maximum(speed, 1e-12)
     new_vel = new_vel * scale
-    return State(new_pos, new_vel)
+    wrapped_pos, wrapped_vel = params.topology.wrap(new_pos, new_vel)
+    return State(wrapped_pos, wrapped_vel)
 
 def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
-    disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
+    disp = displacement(state.pos, topology=params.topology) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     cohesion_force =  cohesion(disp, dist, params)
     alignment_force = alignment(state.vel, dist, params) 
@@ -65,12 +98,12 @@ def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
     current_forces["separation"] = separation_force
     return current_forces
 
-def displacement(pos, bounds: None=None) -> NDArray[np.float64]:
+def displacement(pos, topology: Topology) -> NDArray[np.float64]:
     """
     Calculate the displacement between each pair of boids
-    displacement[i,j] = pos[j] - pos[i]
+    depending on the topology
     """
-    return pos[None, :, :] - pos[:, None, :] # (n,n,d)
+    return topology.displacement(pos)
 
 def cohesion(disp: NDArray[np.float64], dist: NDArray[np.float64], params: Params) -> NDArray[np.float64]:
     close_boids = (dist < params.cohesion_radius) & ~np.eye(len(dist), dtype=bool) # (n,n)
@@ -111,8 +144,8 @@ if __name__ == "__main__":
                     eps_smooth=0.00, 
                     min_speed=1.0,
                     max_speed=100.0,
-                    bounds=None)
-    disp = displacement(state.pos, bounds=params.bounds) # (n,n,d)
+                    topology=Flat())
+    disp = displacement(state.pos, topology=params.topology) # (n,n,d)
     dist = np.linalg.norm(disp, axis=-1) # (n,n)
     print(f"position:\n{pos}")
     print(f"velocity:\n{vel}")
