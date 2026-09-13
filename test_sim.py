@@ -11,6 +11,7 @@ from sim import (
     Flat,
     Params,
     State,
+    Torus,
     alignment,
     cohesion,
     displacement,
@@ -19,12 +20,14 @@ from sim import (
 )
 
 
-def well_separated(pos, radii, eps=1e-6, min_sep=1e-3):
-    disp = displacement(pos, topology=Flat())
+def well_separated(pos, params, eps=1e-6, min_sep=1e-3):
+    disp = displacement(pos, topology=params.topology)
     dist = np.linalg.norm(disp, axis=-1)
+    radii = params.radii
     off_radii = all(np.all(np.abs(dist - r) > eps) for r in radii)
     not_nearly_coincident = np.all((dist == 0) | (dist > min_sep))
-    return off_radii and not_nearly_coincident
+    off_unstable = all(np.all(np.abs(np.abs(disp) - s) > eps) for s in params.topology.unstable_distances())
+    return off_radii and not_nearly_coincident and off_unstable
 
 def random_orthogonal(d: int, rng: np.random.Generator) -> NDArray[np.float64]:
     G = rng.normal(0,1,(d,d))
@@ -134,7 +137,7 @@ def scale_lengths(p: Params, lam: float) -> Params:
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
 def test_rotation_equivariant(force_from, p, exponent, pos, vel, seed):
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     Q = random_orthogonal(2, np.random.default_rng(seed))
     assert np.allclose(force_from(pos @ Q.T, vel @ Q.T, p),
                        force_from(pos, vel, p) @ Q.T)
@@ -142,26 +145,26 @@ def test_rotation_equivariant(force_from, p, exponent, pos, vel, seed):
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), shift=shift_vector())
 def test_translation_invariant(force_from, p, exponent, shift, pos, vel):
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     assert np.allclose(force_from(pos + shift, vel, p), force_from(pos, vel, p))
 
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), shift=shift_vector())
 def test_galilean_invariant(force_from, p, exponent, shift, pos, vel):
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     assert np.allclose(force_from(pos, vel + shift, p), force_from(pos, vel, p))
 
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
 def test_permutation_equivariant(force_from, p, exponent, pos, vel, seed):
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     perm = np.random.default_rng(seed).permutation(len(pos))
     assert np.allclose(force_from(pos[perm], vel[perm], p), force_from(pos, vel, p)[perm])
 
 @pytest.mark.parametrize("force_from, p, exponent", FORCES)
 @given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
 def test_position_scaling(force_from, p, exponent, pos, vel, lam):
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     assert np.allclose(force_from(lam * pos, vel, scale_lengths(p, lam)),
                        lam ** exponent * force_from(pos, vel, p))
 
@@ -261,7 +264,7 @@ def test_alignment_all_isolated():
 @given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
 def test_alignment_scaling_vel(pos, vel, lam):
     p = alignment_params(radius=2.0)
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     assert np.allclose(alignment_from(pos, lam * vel, p),
                        lam * alignment_from(pos, vel, p))
 
@@ -271,7 +274,7 @@ def test_alignment_scaling_vel(pos, vel, lam):
 @given(pos=positions(), vel=velocities())
 def test_separation_numpy_loop(pos, vel):
     p = separation_params()
-    assume(well_separated(pos, p.radii))
+    assume(well_separated(pos, p))
     assert np.allclose(separation_from(pos, vel, p), separation_reference(pos, p))
 
 
@@ -324,3 +327,17 @@ def test_combined_forces_known_values():
     known_separation = np.array([[-0.49999375, -0.49999375], [0.0, 0.0], [0.49999375, 0.49999375]])
     calc_force = forces_from(pos, vel, params)
     assert np.allclose(known_alignment + known_cohesion + known_separation, calc_force)
+
+
+# Torus Topology Tests
+
+@given(pos = positions(), L=st.floats(0.1, 10))
+def test_torus_minimum_image(pos, L):
+    params = Params(topology=Torus(L), eps_smooth=0.01, 
+                    cohesion_radius=5, cohesion_weight=10, 
+                    alignment_radius=20, alignment_weight=40,
+                    separation_radius=4.0, separation_weight=2.0,
+                    min_speed=1.0, max_speed=100.0)
+    assume(well_separated(pos, params))
+    disp = displacement(pos, params.topology)
+    assert np.all(np.abs(disp) < L / 2)

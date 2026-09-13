@@ -14,6 +14,9 @@ class Topology(ABC):
     def wrap(self, pos, vel) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         pass
 
+    def unstable_distances(self) -> tuple[float, ...]:
+        return ()
+
 @dataclass(frozen=True)
 class Flat(Topology):
     def displacement(self, pos):
@@ -31,6 +34,9 @@ class Torus(Topology):
         return raw - self.size * np.round(raw / self.size)
     def wrap(self, pos, vel):
         return (pos % self.size, vel)
+
+    def unstable_distances(self):
+        return (self.size/2,)
 
 @dataclass(frozen=True)
 class Params:
