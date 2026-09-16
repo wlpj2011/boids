@@ -53,16 +53,16 @@ def main() -> None:
     w = 1000 # Width of pygame screen
     h = 1000 # Height of pygame screen
 
-    n = 40 # Number of boids
+    n = 55 # Number of boids
     d = 2 # Number of dimensions
     dt = 1/60
     seed = 0 # rng seed
 
-    params = Params(topology=Torus(1.0), eps_smooth=0.05,
-                cohesion_radius=0.1,   cohesion_weight=10,
-                alignment_radius=0.12, alignment_weight=0.35,
-                separation_radius=0.05, separation_weight=0.1,
-                min_speed=0.2, max_speed=0.5)
+    params = Params(topology=Torus(2.0), eps_smooth=0.04,
+                cohesion_radius=0.06,  cohesion_weight=3.0,
+                alignment_radius=0.06, alignment_weight=0.15,
+                separation_radius=0.03, separation_weight=0.02,
+                min_speed=0.4, max_speed=0.65)
     rng = np.random.default_rng(seed)
     state = initial_state(n, d, rng)
 
