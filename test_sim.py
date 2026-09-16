@@ -418,11 +418,13 @@ def test_step_galilean_covariant_clamped(pos, vel, boost):
     _, vel2 = step_from(pos, vel + boost, dt, p)
     np.testing.assert_allclose(vel2, vel1 + boost)
 
+
 # Flat Topology Tests
 @given(pos=positions(), vel=velocities())
 def test_flat_wrap(pos, vel):
     wrap_pos, wrap_vel = Flat().wrap(pos, vel)
     assert np.array_equal(wrap_pos, pos) and np.array_equal(wrap_vel, vel)
+
 
 # Torus Topology Tests
 
@@ -443,7 +445,7 @@ def test_torus_displacement_known_value():
 
 @given(pos=positions(), L=st.floats(1.0, 10.0))
 def test_torus_agrees_with_flat_locally(pos, L):
-    local = pos * (L / 40)   # positions in [-10,10] -> [-L/4, L/4] at most... use L/80 for a safe margin
+    local = pos * (L / 80)   # positions in [-10,10] -> [-L/4, L/4] at most... use L/80 for a safe margin
     assert np.allclose(Torus(L).displacement(local), Flat().displacement(local))
 
 @given(pos=positions(), vel=velocities(), L = st.floats(0.1,10))

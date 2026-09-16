@@ -37,7 +37,7 @@ class Torus(Topology):
     def wrap(self, pos, vel):
         out_pos = pos % self.size
         out_pos[out_pos >= self.size] -= self.size
-        return (out_pos % self.size, vel)
+        return (out_pos, vel)
 
     def unstable_distances(self):
         return (self.size/2,)
