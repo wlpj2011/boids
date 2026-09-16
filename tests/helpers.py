@@ -1,5 +1,5 @@
 # tests/helpers.py
-from dataclasses import replace
+import dataclasses
 
 import numpy as np
 import pytest
@@ -43,7 +43,7 @@ def shift_vector(d:int=2):
                   elements=st.floats(-10, 10, allow_nan=False))
 
 @st.composite
-def bounded_velocites(draw, min_vel, max_vel, n: int=8, d: int=2):
+def bounded_velocities(draw, min_vel, max_vel, n: int=8, d: int=2):
     directions = draw(arrays(np.float64, (n, d), elements=st.floats(-1, 1)))
     speeds = draw(arrays(np.float64, (n, 1), elements=st.floats(min_vel, max_vel)))
     assume(np.all(np.linalg.norm(directions, axis=1) > 1e-6))
@@ -97,7 +97,7 @@ def torus_params(size = 1.0, radius = 0.25, weight = 1.0, eps = 0.01):
                   min_speed=1.0, max_speed=100.0)
 
 def unclamped_params():
-    return replace(full_params(), min_speed=0.0, max_speed=np.inf)
+    return dataclasses.replace(full_params(), min_speed=0.0, max_speed=np.inf)
 
 
 # State Wrappers
@@ -157,4 +157,4 @@ VELOCITY_FIELDS = ("min_speed", "max_speed",)
 TOPOLOGIES = [pytest.param(Flat(), id="flat"), pytest.param(Torus(20.0), id="torus")]
 
 def scale_lengths(p: Params, lam: float) -> Params:
-    return replace(p, **{f: getattr(p, f) * lam for f in LENGTH_FIELDS})
+    return dataclasses.replace(p, **{f: getattr(p, f) * lam for f in LENGTH_FIELDS})
