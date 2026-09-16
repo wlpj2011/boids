@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+SPEED_FLOOR = 1e-12 
 
 class Topology(ABC):
     @abstractmethod
@@ -32,8 +33,11 @@ class Torus(Topology):
     def displacement(self, pos):
         raw = pos[None, :, :] - pos[:, None, :]
         return raw - self.size * np.round(raw / self.size)
+    
     def wrap(self, pos, vel):
-        return (pos % self.size, vel)
+        out_pos = pos % self.size
+        out_pos[out_pos >= self.size] -= self.size
+        return (out_pos % self.size, vel)
 
     def unstable_distances(self):
         return (self.size/2,)
@@ -86,8 +90,10 @@ def step(state: State, params: Params, dt: float) -> State:
     new_force = sum(forces(state, params).values())
     new_pos = state.pos + dt * state.vel
     new_vel = state.vel + dt * new_force
-    speed = np.linalg.norm(new_vel, axis=1, keepdims=True)          # (n, 1)
-    scale = np.clip(speed, params.min_speed, params.max_speed) / np.maximum(speed, 1e-12)
+
+    speed = np.linalg.norm(new_vel, axis=1, keepdims=True)
+    scale = np.where(speed > SPEED_FLOOR,
+        np.clip(speed, params.min_speed, params.max_speed) / np.maximum(speed, SPEED_FLOOR), 1.0)
     new_vel = new_vel * scale
     wrapped_pos, wrapped_vel = params.topology.wrap(new_pos, new_vel)
     return State(wrapped_pos, wrapped_vel)

@@ -8,6 +8,7 @@ from hypothesis.extra.numpy import arrays
 from numpy.typing import NDArray
 
 from sim import (
+    SPEED_FLOOR,
     Flat,
     Params,
     State,
@@ -17,6 +18,7 @@ from sim import (
     displacement,
     forces,
     separation,
+    step,
 )
 
 
@@ -47,6 +49,14 @@ def velocities(n: int=8, d:int=2):
 def shift_vector(d:int=2):
     return arrays(np.float64, (d,),
                   elements=st.floats(-10, 10, allow_nan=False))
+
+@st.composite
+def bounded_velocites(draw, min_vel, max_vel, n: int=8, d: int=2):
+    directions = draw(arrays(np.float64, (n, d), elements=st.floats(-1, 1)))
+    speeds = draw(arrays(np.float64, (n, 1), elements=st.floats(min_vel, max_vel)))
+    assume(np.all(np.linalg.norm(directions, axis=1) > 1e-6))
+    unit = directions / np.linalg.norm(directions, axis=1, keepdims=True)
+    return unit * speeds
 
 def cohesion_from(pos, vel, params):
     disp = displacement(pos, topology=params.topology)
@@ -96,10 +106,18 @@ def torus_params(size = 1.0, radius = 0.25, weight = 1.0, eps = 0.01):
                   separation_radius=radius, separation_weight=weight,
                   min_speed=1.0, max_speed=100.0)
 
+def unclamped_params():
+    return replace(full_params(), min_speed=0.0, max_speed=np.inf)
+
 def forces_from(pos, vel, params):
     state = State(pos, vel)
     force = sum(forces(state, params).values())
     return force
+
+def step_from(pos, vel, dt, params):
+    state = State(pos, vel)
+    new_state = step(state, params, dt)
+    return (new_state.pos, new_state.vel)
 
 def separation_reference(pos, params):
     n, d = pos.shape
@@ -176,6 +194,17 @@ def test_permutation_equivariant(topology, force_from, p, exponent, pos, vel, se
     perm = np.random.default_rng(seed).permutation(len(pos))
     assert np.allclose(force_from(pos[perm], vel[perm], p), force_from(pos, vel, p)[perm])
 
+@pytest.mark.parametrize("topology", TOPOLOGIES)
+@given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
+def test_step_permutation_equivariant(topology, pos, vel, seed):
+    p = full_params()
+    p = replace(p, topology=topology)
+    assume(well_separated(pos, p))
+    perm = np.random.default_rng(seed).permutation(len(pos))
+    next_step = step_from(pos, vel, 0.01, p)
+    next_step_permuted = step_from(pos[perm], vel[perm], 0.01, p)
+    assert np.allclose((next_step[0][perm], next_step[1][perm]), next_step_permuted)
+
 @pytest.mark.parametrize("force_from, p, exponent", FORCES)
 @given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
 def test_position_scaling(force_from, p, exponent, pos, vel, lam):
@@ -200,8 +229,8 @@ def test_displacement_zero_diagonal(topology, pos):
 @given(pos=positions(), shift=shift_vector())
 def test_displacement_shift_invariant(topology, pos, shift):
     assume(well_separated(pos, torus_params(20.0)))
-    disp = displacement(pos, topology=Flat())
-    disp_shift = displacement(pos + shift, topology=Flat())
+    disp = displacement(pos, topology=topology)
+    disp_shift = displacement(pos + shift, topology=topology)
     assert np.allclose(disp, disp_shift)
 
 @given(pos=positions(), seed=st.integers(0, 2**32 - 1))
@@ -330,6 +359,7 @@ def test_separation_coincidence():
     calc_separation = separation_from(pos, vel, params)
     assert np.allclose(known_separation, calc_separation)
 
+
 # All Forces Known Value tests
 
 def test_combined_forces_known_values():
@@ -347,6 +377,53 @@ def test_combined_forces_known_values():
     assert np.allclose(known_alignment + known_cohesion + known_separation, calc_force)
 
 
+# Step Tests
+@given(pos=positions(), vel=velocities())
+def test_step_speed_bounds(pos, vel):
+    state = State(pos, vel)
+    params = full_params()
+    new_state = step(state, params, 0.01)
+    speed = np.linalg.norm(new_state.vel, axis=1)
+    tol = 1e-9
+    speed_bounded = (params.min_speed - tol <= speed) & (speed <= params.max_speed + tol)
+    stationary = speed <= SPEED_FLOOR
+    assert np.all(speed_bounded | stationary)
+
+NO_FORCE_PARAMS = replace(full_params(weight=0.0), min_speed=1.0, max_speed=5.0)
+@given(pos=positions(), vel=bounded_velocites(NO_FORCE_PARAMS.min_speed, NO_FORCE_PARAMS.max_speed), dt=st.floats(0.01,1))
+def test_step_no_force(pos, vel, dt):
+    state = State(pos, vel)
+    params = NO_FORCE_PARAMS
+    new_state = step(state, params, dt)
+    assert np.allclose(state.pos + state.vel * dt, new_state.pos)
+    assert np.allclose(state.vel, new_state.vel)
+
+@given(pos=positions(), vel=velocities(), boost=shift_vector())
+def test_step_galilean_covariant_unclamped(pos, vel, boost):
+    p = unclamped_params()
+    assume(well_separated(pos, p))
+    dt = 0.01
+    pos1, vel1 = step_from(pos, vel, dt, p)
+    pos2, vel2 = step_from(pos, vel + boost, dt, p)
+    np.testing.assert_allclose(vel2, vel1 + boost)
+    np.testing.assert_allclose(pos2, pos1 + dt * boost)
+
+@pytest.mark.xfail(strict=True, reason="speed clamp breaks Galilean covariance")
+@given(pos=positions(), vel=velocities(), boost=shift_vector())
+def test_step_galilean_covariant_clamped(pos, vel, boost):
+    p = full_params()
+    assume(well_separated(pos, p))
+    dt = 0.01
+    _, vel1 = step_from(pos, vel, dt, p)
+    _, vel2 = step_from(pos, vel + boost, dt, p)
+    np.testing.assert_allclose(vel2, vel1 + boost)
+
+# Flat Topology Tests
+@given(pos=positions(), vel=velocities())
+def test_flat_wrap(pos, vel):
+    wrap_pos, wrap_vel = Flat().wrap(pos, vel)
+    assert np.array_equal(wrap_pos, pos) and np.array_equal(wrap_vel, vel)
+
 # Torus Topology Tests
 
 @given(pos = positions(), L=st.floats(0.1, 10))
@@ -363,3 +440,44 @@ def test_torus_displacement_known_value():
     params = torus_params(size=1.0)
     disp_calc = displacement(pos, params.topology)
     assert np.allclose(disp_calc, disp_known)
+
+@given(pos=positions(), L=st.floats(1.0, 10.0))
+def test_torus_agrees_with_flat_locally(pos, L):
+    local = pos * (L / 40)   # positions in [-10,10] -> [-L/4, L/4] at most... use L/80 for a safe margin
+    assert np.allclose(Torus(L).displacement(local), Flat().displacement(local))
+
+@given(pos=positions(), vel=velocities(), L = st.floats(0.1,10))
+def test_torus_wrap(pos, vel, L):
+    p = torus_params(L)
+    assume(well_separated(pos,p))
+    wrap_pos, wrap_vel = Torus(L).wrap(pos, vel)
+    assert np.all((0 <= wrap_pos) & (wrap_pos < L)) and np.array_equal(wrap_vel, vel)
+
+
+# Order Parameter Tests
+
+def test_order_parameter_aligned_is_one():
+    vel = np.tile([[3.0, -1.0]], (5, 1))
+    assert np.isclose(State(np.zeros((5, 2)), vel).order_parameter, 1.0)
+
+def test_order_parameter_antiparallel_is_zero():
+    vel = np.array([[1.0, 0.0], [-1.0, 0.0]])
+    assert np.isclose(State(np.zeros((2, 2)), vel).order_parameter, 0.0)
+
+def test_order_parameter_four_cardinal_is_zero():
+    vel = np.array([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])
+    assert np.isclose(State(np.zeros((4, 2)), vel).order_parameter, 0.0)
+
+@given(vel=bounded_velocites(0.1, 10.0), seed=st.integers(0, 2**32 - 1))
+def test_order_parameter_rotation_invariant(vel, seed):
+    Q = random_orthogonal(2, np.random.default_rng(seed))
+    pos = np.zeros_like(vel)
+    assert np.isclose(State(pos, vel @ Q.T).order_parameter,
+                      State(pos, vel).order_parameter)
+
+@given(vel=bounded_velocites(0.1, 10.0),
+       factors=arrays(np.float64, (8, 1), elements=st.floats(0.1, 10.0)))
+def test_order_parameter_speed_invariant(vel, factors):
+    pos = np.zeros_like(vel)
+    assert np.isclose(State(pos, vel * factors).order_parameter,
+                      State(pos, vel).order_parameter)
