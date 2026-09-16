@@ -89,6 +89,13 @@ def full_params(radius=2.0, weight=1.0, eps = 0.01):
                   separation_radius=radius, separation_weight=weight,
                   min_speed=1.0, max_speed=100.0)
 
+def torus_params(size = 1.0, radius = 0.25, weight = 1.0, eps = 0.01):
+    return Params(topology=Torus(size), eps_smooth=eps, 
+                  cohesion_radius=radius, cohesion_weight=weight, 
+                  alignment_radius=radius, alignment_weight=weight, 
+                  separation_radius=radius, separation_weight=weight,
+                  min_speed=1.0, max_speed=100.0)
+
 def forces_from(pos, vel, params):
     state = State(pos, vel)
     force = sum(forces(state, params).values())
@@ -131,6 +138,8 @@ LENGTH_FIELDS = ("cohesion_radius", "alignment_radius",
 
 VELOCITY_FIELDS = ("min_speed", "max_speed",)
 
+TOPOLOGIES = [pytest.param(Flat(), id="flat"), pytest.param(Torus(20.0), id="torus")]
+
 def scale_lengths(p: Params, lam: float) -> Params:
     return replace(p, **{f: getattr(p, f) * lam for f in LENGTH_FIELDS})
 
@@ -141,22 +150,28 @@ def test_rotation_equivariant(force_from, p, exponent, pos, vel, seed):
     Q = random_orthogonal(2, np.random.default_rng(seed))
     assert np.allclose(force_from(pos @ Q.T, vel @ Q.T, p),
                        force_from(pos, vel, p) @ Q.T)
-
+    
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), shift=shift_vector())
-def test_translation_invariant(force_from, p, exponent, shift, pos, vel):
+def test_translation_invariant(topology, force_from, p, exponent, shift, pos, vel):
+    p = replace(p, topology=topology)
     assume(well_separated(pos, p))
     assert np.allclose(force_from(pos + shift, vel, p), force_from(pos, vel, p))
 
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), shift=shift_vector())
-def test_galilean_invariant(force_from, p, exponent, shift, pos, vel):
+def test_galilean_invariant(topology, force_from, p, exponent, shift, pos, vel):
+    p = replace(p, topology=topology)
     assume(well_separated(pos, p))
     assert np.allclose(force_from(pos, vel + shift, p), force_from(pos, vel, p))
 
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), seed=st.integers(0, 2**32 - 1))
-def test_permutation_equivariant(force_from, p, exponent, pos, vel, seed):
+def test_permutation_equivariant(topology, force_from, p, exponent, pos, vel, seed):
+    p = replace(p, topology=topology)
     assume(well_separated(pos, p))
     perm = np.random.default_rng(seed).permutation(len(pos))
     assert np.allclose(force_from(pos[perm], vel[perm], p), force_from(pos, vel, p)[perm])
@@ -169,19 +184,22 @@ def test_position_scaling(force_from, p, exponent, pos, vel, lam):
                        lam ** exponent * force_from(pos, vel, p))
 
 # Displacement Invariance tests
-
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @given(pos=positions())
-def test_displacement_antisymmetric(pos):
-    disp = displacement(pos, topology=Flat())
+def test_displacement_antisymmetric(topology, pos):
+    disp = displacement(pos, topology=topology)
     assert np.allclose(disp, -disp.transpose(1, 0, 2))
 
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @given(pos=positions())
-def test_displacement_zero_diagonal(pos):
-    disp = displacement(pos, topology=Flat())
+def test_displacement_zero_diagonal(topology, pos):
+    disp = displacement(pos, topology=topology)
     assert np.allclose(np.diagonal(disp, axis1=0, axis2=1), 0.0)
 
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @given(pos=positions(), shift=shift_vector())
-def test_displacement_shift_invariant(pos, shift):
+def test_displacement_shift_invariant(topology, pos, shift):
+    assume(well_separated(pos, torus_params(20.0)))
     disp = displacement(pos, topology=Flat())
     disp_shift = displacement(pos + shift, topology=Flat())
     assert np.allclose(disp, disp_shift)
@@ -333,11 +351,15 @@ def test_combined_forces_known_values():
 
 @given(pos = positions(), L=st.floats(0.1, 10))
 def test_torus_minimum_image(pos, L):
-    params = Params(topology=Torus(L), eps_smooth=0.01, 
-                    cohesion_radius=5, cohesion_weight=10, 
-                    alignment_radius=20, alignment_weight=40,
-                    separation_radius=4.0, separation_weight=2.0,
-                    min_speed=1.0, max_speed=100.0)
+    params = torus_params(L)
     assume(well_separated(pos, params))
     disp = displacement(pos, params.topology)
-    assert np.all(np.abs(disp) < L / 2)
+    assert np.all(np.abs(disp) <= L / 2)
+
+def test_torus_displacement_known_value():
+    pos = np.array([[0.1, 0.5], [0.9, 0.6]])
+    disp_known = np.array([[[0.0, 0.0], [-0.2, 0.1]], 
+                           [[0.2, -0.1], [0.0, 0.0]]])
+    params = torus_params(size=1.0)
+    disp_calc = displacement(pos, params.topology)
+    assert np.allclose(disp_calc, disp_known)
