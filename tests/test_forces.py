@@ -2,6 +2,7 @@ import numpy as np
 from helpers import (
     alignment_from,
     alignment_params,
+    box_params,
     cohesion_from,
     cohesion_params,
     forces_from,
@@ -126,6 +127,22 @@ def test_separation_coincidence():
 
 
 # All Forces Known Value tests
+
+def test_box_boundary_force_known_values():
+    params = box_params(size=2.0, weight=0.0, eps=0.5,
+                        wall_radius=0.5, wall_weight=2.0)
+    pos = np.array([[0.25, 1.0], [1.75, 1.0],
+                    [1.0, 0.25], [1.0, 1.75],
+                    [0.25, 1.75], [1.0, 1.0],
+                    [0.5, 1.5], [-0.25, 2.25]])
+    # At distance 0.25, the softened image force is
+    # 2 * 0.5 / (0.5**2 + 0.5**2) = 2, directed into the box.
+    # Interior points and points exactly at the cutoff feel no wall force.
+    expected = np.array([[2.0, 0.0], [-2.0, 0.0],
+                         [0.0, 2.0], [0.0, -2.0],
+                         [2.0, -2.0], [0.0, 0.0],
+                         [0.0, 0.0], [2.0, -2.0]])
+    np.testing.assert_allclose(forces_from(pos, np.zeros_like(pos), params), expected)
 
 def test_combined_forces_known_values():
     pos = np.array([[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]])

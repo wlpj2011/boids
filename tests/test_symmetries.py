@@ -3,9 +3,11 @@ import dataclasses
 import numpy as np
 import pytest
 from helpers import (
+    BOUNDARY_FORCES,
     FORCES,
     SUBJECTS,
     TOPOLOGIES,
+    TRANSLATION_TOPOLOGIES,
     positions,
     random_orthogonal,
     scale_lengths,
@@ -25,7 +27,7 @@ def test_rotation_equivariant(force_from, p, exponent, pos, vel, seed):
     assert np.allclose(force_from(pos @ Q.T, vel @ Q.T, p),
                        force_from(pos, vel, p) @ Q.T)
 
-@pytest.mark.parametrize("topology", TOPOLOGIES)
+@pytest.mark.parametrize("topology", TRANSLATION_TOPOLOGIES)
 @pytest.mark.parametrize("force_from, p, exponent", SUBJECTS)
 @given(pos=positions(), vel=velocities(), shift=shift_vector())
 def test_translation_invariant(topology, force_from, p, exponent, shift, pos, vel):
@@ -50,9 +52,18 @@ def test_permutation_equivariant(topology, force_from, p, exponent, pos, vel, se
     perm = np.random.default_rng(seed).permutation(len(pos))
     assert np.allclose(force_from(pos[perm], vel[perm], p), force_from(pos, vel, p)[perm])
 
+@pytest.mark.parametrize("topology", TOPOLOGIES)
 @pytest.mark.parametrize("force_from, p, exponent", FORCES)
 @given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
-def test_position_scaling(force_from, p, exponent, pos, vel, lam):
+def test_position_scaling(topology, force_from, p, exponent, pos, vel, lam):
+    p = dataclasses.replace(p, topology=topology)
+    assume(well_separated(pos, p))
+    assert np.allclose(force_from(lam * pos, vel, scale_lengths(p, lam)),
+                       lam ** exponent * force_from(pos, vel, p))
+
+@pytest.mark.parametrize("force_from, p, exponent", BOUNDARY_FORCES)
+@given(pos=positions(), vel=velocities(), lam=st.floats(0.1, 10))
+def test_position_scaling_boundary(force_from, p, exponent, pos, vel, lam):
     assume(well_separated(pos, p))
     assert np.allclose(force_from(lam * pos, vel, scale_lengths(p, lam)),
                        lam ** exponent * force_from(pos, vel, p))

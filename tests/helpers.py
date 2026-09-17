@@ -9,6 +9,7 @@ from hypothesis.extra.numpy import arrays
 from numpy.typing import NDArray
 
 from sim import (
+    Box,
     Flat,
     Params,
     State,
@@ -56,8 +57,14 @@ def well_separated(pos, params, eps=1e-6, min_sep=1e-3):
     radii = params.radii
     off_radii = all(np.all(np.abs(dist - r) > eps) for r in radii)
     not_nearly_coincident = np.all((dist == 0) | (dist > min_sep))
-    off_unstable = all(np.all(np.abs(np.abs(disp) - s) > eps) for s in params.topology.unstable_distances())
-    return off_radii and not_nearly_coincident and off_unstable
+    off_unstable = all(np.all(np.abs(np.abs(disp) - s) > eps)
+                       for s in params.topology.unstable_distances())
+    off_walls = True
+    if isinstance(params.topology, Box):
+        t = params.topology
+        to_walls = np.concatenate([np.abs(pos), np.abs(t.size - pos)], axis=1)  # (n, 2d)
+        off_walls = np.all(np.abs(to_walls - t.wall_radius) > eps)
+    return off_radii and not_nearly_coincident and off_unstable and off_walls
 
 # Param Builders
 
@@ -96,6 +103,13 @@ def torus_params(size = 1.0, radius = 0.25, weight = 1.0, eps = 0.01):
                   separation_radius=radius, separation_weight=weight,
                   min_speed=1.0, max_speed=100.0)
 
+def box_params(size=20.0, radius=0.25, weight=1.0, eps=0.01,
+               wall_radius=2.0, wall_weight=1.0):
+    return dataclasses.replace(
+        full_params(radius=radius, weight=weight, eps=eps),
+        topology=Box(size, wall_radius=wall_radius, wall_weight=wall_weight),
+    )
+
 def unclamped_params():
     return dataclasses.replace(full_params(), min_speed=0.0, max_speed=np.inf)
 
@@ -112,6 +126,10 @@ def alignment_from(pos, vel, params):
 def separation_from(pos, vel, params):
     disp = displacement(pos, topology=params.topology)
     return separation(disp, np.linalg.norm(disp, axis=-1), params)
+
+def boundary_from(pos, vel, params):
+    state = State(pos, vel)
+    return params.topology.boundary_forces(state, params)["boundary"]
 
 def forces_from(pos, vel, params):
     state = State(pos, vel)
@@ -147,6 +165,8 @@ FORCES = [
     pytest.param(separation_from, separation_params(), -1, id="separation"),
 ]
 
+BOUNDARY_FORCES = [pytest.param(boundary_from, box_params(), -1, id="boundary")]
+
 SUBJECTS = FORCES + [pytest.param(forces_from, full_params(), None, id="all")]
 
 LENGTH_FIELDS = ("cohesion_radius", "alignment_radius",
@@ -154,7 +174,20 @@ LENGTH_FIELDS = ("cohesion_radius", "alignment_radius",
 
 VELOCITY_FIELDS = ("min_speed", "max_speed",)
 
-TOPOLOGIES = [pytest.param(Flat(), id="flat"), pytest.param(Torus(20.0), id="torus")]
+TRANSLATION_TOPOLOGIES = [pytest.param(Flat(), id="flat"), pytest.param(Torus(20.0), id="torus")]
+TOPOLOGIES = TRANSLATION_TOPOLOGIES + [
+    pytest.param(Box(20.0, wall_radius=0.25, wall_weight=1.0), id="box"),
+]
+TOPOLOGY_LENGTH_FIELDS = {
+    Flat: (),
+    Torus: ("size",),
+    Box: ("size", "wall_radius"),
+}
 
-def scale_lengths(p: Params, lam: float) -> Params:
-    return dataclasses.replace(p, **{f: getattr(p, f) * lam for f in LENGTH_FIELDS})
+def scale_topology(t, lam):
+    fields = TOPOLOGY_LENGTH_FIELDS[type(t)]
+    return dataclasses.replace(t, **{f: getattr(t, f) * lam for f in fields})
+
+def scale_lengths(p, lam):
+    scaled = {f: getattr(p, f) * lam for f in LENGTH_FIELDS}
+    return dataclasses.replace(p, topology=scale_topology(p.topology, lam), **scaled)

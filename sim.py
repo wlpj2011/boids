@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -12,8 +14,11 @@ class Topology(ABC):
         pass
 
     @abstractmethod
-    def wrap(self, pos, vel) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    def wrap(self, state: State) -> State:
         pass
+
+    def boundary_forces(self, state: State, params: Params) -> State:
+        return {}
 
     def unstable_distances(self) -> tuple[float, ...]:
         return ()
@@ -24,9 +29,39 @@ class Flat(Topology):
         disp = pos[None, :, :] - pos[:, None, :]
         return disp
 
-    def wrap(self, pos, vel):
-        return pos, vel
+    def wrap(self, state: State) -> State:
+        return state
 
+@dataclass(frozen=True)
+class Box(Topology):
+    size: float
+    wall_radius: float
+    wall_weight: float
+
+    def displacement(self, pos):
+        return pos[None, :, :] - pos[:, None, :]
+
+    def wrap(self, state: State) -> State:
+        return state
+
+    def boundary_forces(self, state, params):
+        # Distance to each wall, (n, d). abs() so a boid that overshoots
+        # a wall is pushed back in rather than further out.
+        to_lower = np.abs(state.pos)
+        to_upper = np.abs(self.size - state.pos)
+        eps2 = params.eps_smooth ** 2
+
+        def push(d):
+            # Image at distance 2d. Kernel -disp/(dist^2 + eps^2) with
+            # disp = -2d toward the lower wall gives +2d/(4d^2 + eps^2),
+            # pointing away from that wall.
+            return np.divide(2 * d, 4 * d**2 + eps2,
+                             out=np.zeros_like(d),
+                             where=(0 < d) & (d < self.wall_radius))
+
+        force = push(to_lower) - push(to_upper)
+        return {"boundary": self.wall_weight * force}
+    
 @dataclass(frozen=True)
 class Torus(Topology):
     size: float
@@ -34,10 +69,10 @@ class Torus(Topology):
         raw = pos[None, :, :] - pos[:, None, :]
         return raw - self.size * np.round(raw / self.size)
     
-    def wrap(self, pos, vel):
-        out_pos = pos % self.size
+    def wrap(self, state: State) -> State:
+        out_pos = state.pos % self.size
         out_pos[out_pos >= self.size] -= self.size
-        return (out_pos, vel)
+        return State(out_pos, state.vel)
 
     def unstable_distances(self):
         return (self.size/2,)
@@ -95,8 +130,7 @@ def step(state: State, params: Params, dt: float) -> State:
     scale = np.where(speed > SPEED_FLOOR,
         np.clip(speed, params.min_speed, params.max_speed) / np.maximum(speed, SPEED_FLOOR), 1.0)
     new_vel = new_vel * scale
-    wrapped_pos, wrapped_vel = params.topology.wrap(new_pos, new_vel)
-    return State(wrapped_pos, wrapped_vel)
+    return params.topology.wrap(State(new_pos, new_vel))
 
 def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
     disp = displacement(state.pos, topology=params.topology) # (n,n,d)
@@ -108,6 +142,7 @@ def forces(state: State, params: Params) -> dict[str, NDArray[np.float64]]:
     current_forces["cohesion"] = cohesion_force
     current_forces["alignment"] = alignment_force
     current_forces["separation"] = separation_force
+    current_forces.update(params.topology.boundary_forces(state, params))
     return current_forces
 
 def displacement(pos, topology: Topology) -> NDArray[np.float64]:

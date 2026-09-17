@@ -4,9 +4,9 @@ import numpy as np
 import pygame
 from numpy.typing import NDArray
 
-from sim import Flat, Params, State, Torus, initial_state, step
+from sim import Box, Flat, Params, State, Torus, initial_state, step
 
-ARROW_SIZE = 0.02
+ARROW_SIZE = 0.012
 
 KEY_BINDINGS = {
     pygame.K_q: ("cohesion_weight", 1.25),  pygame.K_a: ("cohesion_weight", 0.8),
@@ -58,11 +58,11 @@ def main() -> None:
     dt = 1/60
     seed = 0 # rng seed
 
-    params = Params(topology=Torus(2.0), eps_smooth=0.04,
-                cohesion_radius=0.06,  cohesion_weight=3.0,
-                alignment_radius=0.06, alignment_weight=0.15,
-                separation_radius=0.03, separation_weight=0.02,
-                min_speed=0.4, max_speed=0.65)
+    params = Params(topology=Box(1.0, 0.2, 0.3), eps_smooth=0.04,
+                cohesion_radius=0.08,  cohesion_weight=3.0,
+                alignment_radius=0.08, alignment_weight=0.5,
+                separation_radius=0.035, separation_weight=0.04,
+                min_speed=0.25, max_speed=0.45)
     rng = np.random.default_rng(seed)
     state = initial_state(n, d, rng)
 
